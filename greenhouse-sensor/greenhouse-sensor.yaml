@@ -1,0 +1,161 @@
+esphome:
+  name: kas-sensor
+  friendly_name: kas-sensor
+
+esp8266:
+  board: d1_mini
+
+# Enable logging
+logger:
+  # Disable logger on UART
+  baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "OL39ZFRK8Wg5OQsGK+FrIlJIssi8RgNd8FHg413FAiY="
+
+ota:
+  - platform: esphome
+    password: "d3bcb50fb5dfa19ccefa80381df2ff3b"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Kas-Sensor Fallback Hotspot"
+    password: "FeqH0sJeBOXU"
+
+captive_portal:
+
+i2c:
+  sda: D1
+  scl: D2
+
+uart:
+  tx_pin: GPIO1
+  rx_pin: GPIO3
+  baud_rate: 9600
+
+binary_sensor:
+  - platform: gpio
+    pin: 
+      number: D0
+      inverted: True
+    name: "Rain detected"
+    device_class: moisture
+    icon: 'mdi:weather-pouring'
+    filters:
+      - delayed_on_off: 50ms # debouncing
+  - platform: gpio
+    id: btn
+    internal: True
+    pin: 
+      number: D5
+      mode: 
+        input: True
+        pullup: True
+    name: "Button"
+    filters: 
+      - delayed_on_off: 10ms
+    on_press: 
+      then:
+        - logger.log: "Button pressed"
+
+sensor:
+  - platform: adc
+    pin: A0
+    name: "Rain"
+    update_interval: 10s
+    device_class: moisture
+    icon: 'mdi:water-percent'
+    unit_of_measurement: '%'
+    filters: 
+      - lambda: return 100.0 - ((x / 1.0) * 100);
+
+  - platform: bme280_i2c
+    temperature:
+      id: bme_temp
+      name: "Kas temperature"
+    pressure:
+      id: bme_pres
+      name: "Kas pressure"
+    humidity:
+      id: bme_hum
+      name: "Kas humidity"
+    address: 0x76
+    update_interval: 120s
+
+  - platform: pmsx003
+    type: PMSX003
+    pm_1_0: 
+      name: "Patriculate matter <1.0µm concentration"
+    pm_2_5: 
+      name: "Particulate matter <2.5µm concentration"
+    pm_10_0: 
+      name: "Particulate matter <10.0µm concentration"
+    update_interval: 600s
+
+  - platform: uptime
+    name: "Kas Uptime"
+    id: kas_uptime
+
+  - platform: wifi_signal
+    name: "WiFi Signal dB"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: "diagnostic"
+
+  - platform: copy
+    source_id: wifi_signal_db
+    name: "WiFi Signal Percent"
+    filters: 
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: "diagnostic"
+    device_class: ""
+
+time:
+  - platform: homeassistant
+    id: esptime
+    on_time_sync:
+      then:
+        - logger.log: "Synchronized system clock"
+
+font:
+  - file: "gfonts://Roboto"
+    id: roboto_20
+    size: 20
+  - file: "gfonts://Roboto"
+    id: roboto_10
+    size: 10
+  - file: "gfonts://Roboto"
+    id: roboto_16
+    size: 16
+  - file: "gfonts://Roboto Mono"
+    id: roboto_mono_12
+    size: 12
+  - file: "gfonts://Roboto Mono"
+    id: roboto_mono_14
+    size: 14
+
+display:
+  - platform: ssd1306_i2c
+    model: SSD1306_128X32
+    address: 0x3C
+    rotation: 180
+    lambda: |-
+      // print time in HH:mm
+      if (id(esptime).now().is_valid()) {
+        it.strftime(128, 0, id(roboto_mono_12), TextAlign::TOP_RIGHT, "%d-%m-%Y %H:%M", id(esptime).now());
+      } else {
+        it.print(0, 0, id(roboto_mono_12), "Waiting for time...");
+      }
+
+      // print measurements
+      // assume all measurements are available when temperature is available
+      if (id(bme_temp).has_state()) {
+        it.printf(0, 32, id(roboto_mono_12), TextAlign::BASELINE_LEFT, "%.1f°C %1.f%% %.1f", id(bme_temp).state, id(bme_hum).state, id(bme_pres).state);
+      }
